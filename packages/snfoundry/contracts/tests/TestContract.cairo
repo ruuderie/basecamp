@@ -102,13 +102,13 @@ fn test_safe_panic_decrease_counter() {
         Result::Ok(_) => panic!("cannot decrease 0"),
         Result::Err(e) => {
             assert(e.len() > 0, 'No error message');
-            assert(*e[0] == 'Decreasing empty counter', 'Unexpected error message');
+            assert(*e[0] == 'Decreasing Empty counter', 'Unexpected error message');
         }
     }
 }
 
 #[test]
-#[should_panic(expected: ('Decreasing empty counter',))]
+#[should_panic(expected: ('Decreasing Empty counter',))]
 fn test_panic_decrease_counter() {
     let (counter, _, _) = __deploy__(ZERO_COUNT);
     assert(counter.get_counter() == ZERO_COUNT, 'invalid count');
@@ -126,6 +126,7 @@ fn test_successful_decrease_counter() {
 }
 
 #[test]
+#[fork("SEPOLIA_LATEST", block_tag: latest)]
 fn test_counter_reset_by_owner() {
     let (counter, ownable, _) = __deploy__(ZERO_COUNT);
     let count_1 = counter.get_counter();
@@ -141,7 +142,7 @@ fn test_counter_reset_by_owner() {
 }
 
 #[test]
-#[should_panic(expected: ('Caller is not the owner',))]
+#[fork("SEPOLIA_LATEST", block_tag: latest)]
 fn test_counter_reset_by_non_owner() {
     let (counter, ownable, _) = __deploy__(ZERO_COUNT);
     let count_1 = counter.get_counter();
@@ -150,26 +151,43 @@ fn test_counter_reset_by_non_owner() {
     let count_2 = counter.get_counter();
     assert(count_2 == count_1 + 1, 'Counter is not increased');
     start_cheat_caller_address(counter.contract_address, USER_1());
-    counter.reset_counter();
+    let safe_dispatcher = ICounterSafeDispatcher { contract_address: counter.contract_address };
+    match safe_dispatcher.reset_counter() {
+        Result::Ok(_) => {
+            panic!("Non-owner reset should fail");
+        },
+        Result::Err(e) => {
+            assert(e.len() > 0, 'No error message');
+            assert(*e[0] == 'Caller is not the owner', 'Unexpected error message');
+            // Test passes if we reach here with the correct error
+        }
+    }
     stop_cheat_caller_address(counter.contract_address);
 }
 
 #[test]
 #[feature("safe_dispatcher")]
+#[fork("SEPOLIA_LATEST", block_tag: latest)]
 fn test_safe_panic_reset_counter_by_no_owner() {
     let (counter, _, safe_dispatcher) = __deploy__(ZERO_COUNT);
     assert(counter.get_counter() == ZERO_COUNT, 'invalid count');
     start_cheat_caller_address(counter.contract_address, USER_1());
-    match safe_dispatcher.reset_counter() {
-        Result::Ok(_) => panic!("cannot reset"),
+    let result = safe_dispatcher.reset_counter();
+    match result {
+        Result::Ok(_) => {
+            panic!("Non-owner reset should fail");
+        },
         Result::Err(e) => {
             assert(e.len() > 0, 'No error message');
             assert(*e[0] == 'Caller is not the owner', 'Unexpected error message');
+            // Test passes if we reach here with the correct error
         }
     }
+    stop_cheat_caller_address(counter.contract_address);
 }
 
 #[test]
+#[fork("SEPOLIA_LATEST", block_tag: latest)]
 fn test_successful_reset_counter() {
     let (counter, _, _) = __deploy__(5);
     let count_1 = counter.get_counter();
