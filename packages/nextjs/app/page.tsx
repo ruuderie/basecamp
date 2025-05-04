@@ -28,8 +28,8 @@ const Home = () => {
     args: [counter?.address],
   });
 
-  const formattedBalance = contractBalance
-    ? (Number(contractBalance) / 10 ** 18).toFixed(6)
+  const formattedBalance = strkBalance
+    ? (Number(strkBalance) / 10 ** 18).toFixed(6)
     : "0.000000";
 
   const { data: winNumber } = useScaffoldReadContract({
@@ -46,7 +46,7 @@ const Home = () => {
 
   const { data: events } = useScaffoldEventHistory({
     contractName: "Counter",
-    eventName: "contracts::counter::Counter::Increased",
+    eventName: "contracts::Counter::Counter::Increased",
     fromBlock: blockNumber ? (blockNumber > 50n ? BigInt(blockNumber - 50) : 0n) : 0n,
     watch: true,
   });
