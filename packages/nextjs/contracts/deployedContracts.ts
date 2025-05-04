@@ -7,7 +7,7 @@ const deployedContracts = {
   devnet: {
     Counter: {
       address:
-        "0x1d3834c1035e31f3e477ae6878a98d4bf4517fb4828e182271c231260700344",
+        "0x15a0148565a58b7641b88cf88a928870335d0cd656d7123961cb1a26f5f0f30",
       abi: [
         {
           type: "impl",
@@ -49,6 +49,17 @@ const deployedContracts = {
               inputs: [],
               outputs: [],
               state_mutability: "external",
+            },
+            {
+              type: "function",
+              name: "get_win_number",
+              inputs: [],
+              outputs: [
+                {
+                  type: "core::integer::u32",
+                },
+              ],
+              state_mutability: "view",
             },
           ],
         },
@@ -117,7 +128,7 @@ const deployedContracts = {
           name: "constructor",
           inputs: [
             {
-              name: "initial_value",
+              name: "init_value",
               type: "core::integer::u32",
             },
             {
@@ -134,11 +145,6 @@ const deployedContracts = {
             {
               name: "account",
               type: "core::starknet::contract_address::ContractAddress",
-              kind: "key",
-            },
-            {
-              name: "increased_by",
-              type: "core::integer::u32",
               kind: "data",
             },
           ],
@@ -149,9 +155,21 @@ const deployedContracts = {
           kind: "struct",
           members: [
             {
-              name: "decreased_by",
-              type: "core::integer::u32",
-              kind: "key",
+              name: "account",
+              type: "core::starknet::contract_address::ContractAddress",
+              kind: "data",
+            },
+          ],
+        },
+        {
+          type: "event",
+          name: "contracts::Counter::Counter::Reset",
+          kind: "struct",
+          members: [
+            {
+              name: "account",
+              type: "core::starknet::contract_address::ContractAddress",
+              kind: "data",
             },
           ],
         },
@@ -208,18 +226,6 @@ const deployedContracts = {
         },
         {
           type: "event",
-          name: "contracts::Counter::Counter::Reset",
-          kind: "struct",
-          members: [
-            {
-              name: "reset_to",
-              type: "core::integer::u32",
-              kind: "key",
-            },
-          ],
-        },
-        {
-          type: "event",
           name: "contracts::Counter::Counter::Event",
           kind: "enum",
           variants: [
@@ -234,20 +240,20 @@ const deployedContracts = {
               kind: "nested",
             },
             {
-              name: "OwnableEvent",
-              type: "openzeppelin_access::ownable::ownable::OwnableComponent::Event",
-              kind: "flat",
-            },
-            {
               name: "Reset",
               type: "contracts::Counter::Counter::Reset",
               kind: "nested",
+            },
+            {
+              name: "OwnableEvent",
+              type: "openzeppelin_access::ownable::ownable::OwnableComponent::Event",
+              kind: "flat",
             },
           ],
         },
       ],
       classHash:
-        "0x47920b6ea318fffc2f4f05d961a975b86754db26505db7273616a5ec28fe407",
+        "0x59288d80a1e4b71bb1e590bfde7c0243f3a88a2855ec4791f56323f21cb92b7",
     },
   },
 } as const;
