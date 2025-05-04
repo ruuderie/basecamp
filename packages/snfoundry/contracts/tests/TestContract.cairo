@@ -1,61 +1,182 @@
-use contracts::YourContract::YourContract::FELT_STRK_CONTRACT;
-use contracts::YourContract::{IYourContractDispatcher, IYourContractDispatcherTrait};
-use openzeppelin_testing::declare_and_deploy;
-use openzeppelin_token::erc20::interface::{IERC20Dispatcher, IERC20DispatcherTrait};
-use openzeppelin_utils::serde::SerializedAppend;
-use snforge_std::{CheatSpan, cheat_caller_address};
+use contracts::Counter::{
+    Counter, ICounterDispatcher, ICounterDispatcherTrait, ICounterSafeDispatcher,
+    ICounterSafeDispatcherTrait,
+};
+use openzeppelin_access::ownable::interface::{IOwnableDispatcher, IOwnableDispatcherTrait};
+use snforge_std::{
+    ContractClassTrait, DeclareResultTrait, EventSpyAssertionsTrait, declare, spy_events,
+    start_cheat_caller_address, stop_cheat_caller_address,
+};
 use starknet::ContractAddress;
+const ZERO_COUNT: u32 = 0;
 
-// Real wallet address deployed on Sepolia
-const OWNER: ContractAddress = 0x02dA5254690b46B9C4059C25366D1778839BE63C142d899F0306fd5c312A5918
-    .try_into()
-    .unwrap();
+fn OWNER() -> ContractAddress {
+    'OWNER'.try_into().unwrap()
+}
+fn USER_1() -> ContractAddress {
+    'USER_1'.try_into().unwrap()
+}
+fn __deploy__(initial_value: u32) -> (ICounterDispatcher, IOwnableDispatcher, ICounterSafeDispatcher) {
+    // declare the contract
+    let contract = declare("Counter").unwrap().contract_class();
 
-const STRK_TOKEN_CONTRACT_ADDRESS: ContractAddress = FELT_STRK_CONTRACT.try_into().unwrap();
+    // serialize constructor
+    let mut calldata: Array<felt252> = array![];
+    initial_value.serialize(ref calldata);
+    OWNER().serialize(ref calldata);
 
-fn deploy_contract(name: ByteArray) -> ContractAddress {
-    let mut calldata = array![];
-    calldata.append_serde(OWNER);
-    declare_and_deploy(name, calldata)
+    // deploy the contract
+    let (contract_address, _) = contract.deploy(@calldata).unwrap();
+
+    let counter = ICounterDispatcher { contract_address };
+    let ownable = IOwnableDispatcher { contract_address };
+    let safe_dispatcher = ICounterSafeDispatcher { contract_address };
+
+    (counter, ownable, safe_dispatcher)
 }
 
 #[test]
-fn test_set_greetings() {
-    let contract_address = deploy_contract("YourContract");
-
-    let dispatcher = IYourContractDispatcher { contract_address };
-
-    let current_greeting = dispatcher.greeting();
-    let expected_greeting: ByteArray = "Building Unstoppable Apps!!!";
-    assert(current_greeting == expected_greeting, 'Should have the right message');
-
-    let new_greeting: ByteArray = "Learn Scaffold-Stark 2! :)";
-    dispatcher.set_greeting(new_greeting.clone(), Option::None); // we don't transfer any strk
-    assert(dispatcher.greeting() == new_greeting, 'Should allow set new message');
+fn test_counter_deployment() {
+    let (counter, ownable, _) = __deploy__(ZERO_COUNT);
+    let count_1 = counter.get_counter();
+    assert(count_1 == ZERO_COUNT, 'Counter is not set');
+    assert(ownable.owner() == OWNER(), 'Owner is not set');
 }
 
 #[test]
-#[fork("SEPOLIA_LATEST")]
-fn test_transfer() {
-    let user = OWNER;
-    let your_contract_address = deploy_contract("YourContract");
+fn test_counter_increase() {
+    let (counter, _, _) = __deploy__(ZERO_COUNT);
+    let count_1 = counter.get_counter();
+    assert(count_1 == ZERO_COUNT, 'Counter is not set');
+    counter.increase_counter();
+    let count_2 = counter.get_counter();
+    assert(count_2 == count_1 + 1, 'Counter is not increased');
+}
 
-    let your_contract_dispatcher = IYourContractDispatcher {
-        contract_address: your_contract_address,
-    };
-    let erc20_dispatcher = IERC20Dispatcher { contract_address: STRK_TOKEN_CONTRACT_ADDRESS };
-    let amount_to_transfer = 500;
-    cheat_caller_address(STRK_TOKEN_CONTRACT_ADDRESS, user, CheatSpan::TargetCalls(1));
-    erc20_dispatcher.approve(your_contract_address, amount_to_transfer);
-    let approved_amount = erc20_dispatcher.allowance(user, your_contract_address);
-    assert(approved_amount == amount_to_transfer, 'Not the right amount approved');
+#[test]
+fn test_emitted_increased_event() {
+    let (counter, _, _) = __deploy__(ZERO_COUNT);
+    let mut spy = spy_events();
+    start_cheat_caller_address(counter.contract_address, USER_1());
+    counter.increase_counter();
+    stop_cheat_caller_address(counter.contract_address);
+    
+    spy.assert_emitted(
+        @array![
+            (
+                counter.contract_address,
+                Counter::Event::Increased(Counter::Increased { account: USER_1() })
+            )
+        ]
+    );
+    
+    spy.assert_not_emitted(
+        @array![
+            (
+                counter.contract_address,
+                Counter::Event::Decreased(Counter::Decreased { account: USER_1() })
+            )
+        ]
+    );
+}
 
-    let new_greeting: ByteArray = "Learn Scaffold-Stark 2! :)";
+#[test]
+fn test_counter_decrease() {
+    let (counter, _, _) = __deploy__(ZERO_COUNT);
+    let count_1 = counter.get_counter();
+    assert(count_1 == ZERO_COUNT, 'Counter is not set');
+    counter.increase_counter();
+    let count_2 = counter.get_counter();
+    assert(count_2 == count_1 + 1, 'Counter is not increased');
+    counter.decrease_counter();
+    let count_3 = counter.get_counter();
+    assert(count_3 == count_2 - 1, 'Counter is not decreased');
+}
 
-    cheat_caller_address(your_contract_address, user, CheatSpan::TargetCalls(1));
-    your_contract_dispatcher
-        .set_greeting(
-            new_greeting.clone(), Option::Some(amount_to_transfer),
-        ); // we transfer 500 wei
-    assert(your_contract_dispatcher.greeting() == new_greeting, 'Should allow set new message');
+#[test]
+#[feature("safe_dispatcher")]
+fn test_safe_panic_decrease_counter() {
+    let (counter, _, safe_dispatcher) = __deploy__(ZERO_COUNT);
+    assert(counter.get_counter() == ZERO_COUNT, 'invalid count');
+    match safe_dispatcher.decrease_counter() {
+        Result::Ok(_) => panic!("cannot decrease 0"),
+        Result::Err(e) => {
+            assert(e.len() > 0, 'No error message');
+            assert(*e[0] == 'Decreasing empty counter', 'Unexpected error message');
+        }
+    }
+}
+
+#[test]
+#[should_panic(expected: ('Decreasing empty counter',))]
+fn test_panic_decrease_counter() {
+    let (counter, _, _) = __deploy__(ZERO_COUNT);
+    assert(counter.get_counter() == ZERO_COUNT, 'invalid count');
+    counter.decrease_counter();
+}
+
+#[test]
+fn test_successful_decrease_counter() {
+    let (counter, _, _) = __deploy__(5);
+    let count_1 = counter.get_counter();
+    assert(count_1 == 5, 'invalid count');
+    counter.decrease_counter();
+    let count_2 = counter.get_counter();
+    assert(count_2 == count_1 - 1, 'invalid decrease count');
+}
+
+#[test]
+fn test_counter_reset_by_owner() {
+    let (counter, ownable, _) = __deploy__(ZERO_COUNT);
+    let count_1 = counter.get_counter();
+    assert(count_1 == ZERO_COUNT, 'Counter is not set');
+    counter.increase_counter();
+    let count_2 = counter.get_counter();
+    assert(count_2 == count_1 + 1, 'Counter is not increased');
+    start_cheat_caller_address(counter.contract_address, OWNER());
+    counter.reset_counter();
+    stop_cheat_caller_address(counter.contract_address);
+    let count_3 = counter.get_counter();
+    assert(count_3 == ZERO_COUNT, 'Counter is not reset by owner');
+}
+
+#[test]
+#[should_panic(expected: ('Caller is not the owner',))]
+fn test_counter_reset_by_non_owner() {
+    let (counter, ownable, _) = __deploy__(ZERO_COUNT);
+    let count_1 = counter.get_counter();
+    assert(count_1 == ZERO_COUNT, 'Counter is not set');
+    counter.increase_counter();
+    let count_2 = counter.get_counter();
+    assert(count_2 == count_1 + 1, 'Counter is not increased');
+    start_cheat_caller_address(counter.contract_address, USER_1());
+    counter.reset_counter();
+    stop_cheat_caller_address(counter.contract_address);
+}
+
+#[test]
+#[feature("safe_dispatcher")]
+fn test_safe_panic_reset_counter_by_no_owner() {
+    let (counter, _, safe_dispatcher) = __deploy__(ZERO_COUNT);
+    assert(counter.get_counter() == ZERO_COUNT, 'invalid count');
+    start_cheat_caller_address(counter.contract_address, USER_1());
+    match safe_dispatcher.reset_counter() {
+        Result::Ok(_) => panic!("cannot reset"),
+        Result::Err(e) => {
+            assert(e.len() > 0, 'No error message');
+            assert(*e[0] == 'Caller is not the owner', 'Unexpected error message');
+        }
+    }
+}
+
+#[test]
+fn test_successful_reset_counter() {
+    let (counter, _, _) = __deploy__(5);
+    let count_1 = counter.get_counter();
+    assert(count_1 == 5, 'invalid count');
+    start_cheat_caller_address(counter.contract_address, OWNER());
+    counter.reset_counter();
+    stop_cheat_caller_address(counter.contract_address);
+    let count_2 = counter.get_counter();
+    assert(count_2 == 0, 'counter not reset');
 }
